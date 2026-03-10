@@ -267,12 +267,28 @@ body.dark .dot-tip {
 .cline {
   fill:none;
   stroke-width:0.95;
-  opacity:0.55;
+  opacity:0.26;
   transition:opacity 0.25s, stroke-width 0.25s;
   stroke-linecap:round;
-  stroke-dasharray:1.4 1.15;
+  stroke-dasharray:0.9 2.2;
 }
-.cline.on { opacity:0.88; stroke-width:1.25; }
+.cline.on { opacity:0.64; stroke-width:1.18; }
+
+.wheel-wrap.focus-mode .cline:not(.on) {
+  opacity:0.08;
+  filter:blur(0.6px);
+}
+
+.wheel-wrap.focus-mode #ringLabels,
+.wheel-wrap.focus-mode #catLabels {
+  opacity:0.2;
+  filter:blur(1.3px);
+}
+
+@keyframes cascadePop {
+  from { transform:translate(-50%,-50%) scale(0.85); }
+  to   { transform:translate(-50%,-50%) scale(1.28); }
+}
 
 .wheel-wrap.focus-mode .cline:not(.on) {
   opacity:0.12;
@@ -827,15 +843,22 @@ function layout() {
   const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
 
   const marker = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
-  marker.setAttribute('id', 'arrowHead');
-  marker.setAttribute('markerWidth', '6');
-  marker.setAttribute('markerHeight', '6');
-  marker.setAttribute('refX', '5.2');
-  marker.setAttribute('refY', '3');
+  marker.setAttribute('id', 'flowTick');
+  marker.setAttribute('markerUnits', 'userSpaceOnUse');
+  marker.setAttribute('markerWidth', '2.6');
+  marker.setAttribute('markerHeight', '2.6');
+  marker.setAttribute('refX', '1.3');
+  marker.setAttribute('refY', '1.3');
   marker.setAttribute('orient', 'auto');
+
   const markerPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-  markerPath.setAttribute('d', 'M0,0 L6,3 L0,6 z');
-  markerPath.setAttribute('fill', isDark ? '#d3e0ff' : '#1a4abf');
+  markerPath.setAttribute('d', 'M0.55,0.45 L1.85,1.3 L0.55,2.15');
+  markerPath.setAttribute('fill', 'none');
+  markerPath.setAttribute('stroke', isDark ? 'rgba(211,224,255,0.55)' : 'rgba(26,74,191,0.42)');
+  markerPath.setAttribute('stroke-width', '0.34');
+  markerPath.setAttribute('stroke-linecap', 'round');
+  markerPath.setAttribute('stroke-linejoin', 'round');
+
   marker.appendChild(markerPath);
   defs.appendChild(marker);
 
@@ -975,7 +998,7 @@ function layout() {
       line.setAttribute('x2', tgt.x);
       line.setAttribute('y2', tgt.y);
       line.setAttribute('class', `cline ${k}`);
-      line.setAttribute('marker-end', 'url(#arrowHead)');
+      line.setAttribute('marker-mid', 'url(#flowTick)');
       line.dataset.src = role.id;
       line.dataset.tgt = cid;
 
