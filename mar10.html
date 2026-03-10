@@ -290,6 +290,22 @@ body.dark .dot-tip {
   to   { transform:translate(-50%,-50%) scale(1.28); }
 }
 
+.wheel-wrap.focus-mode .cline:not(.on) {
+  opacity:0.12;
+  filter:blur(0.6px);
+}
+
+.wheel-wrap.focus-mode #ringLabels,
+.wheel-wrap.focus-mode #catLabels {
+  opacity:0.2;
+  filter:blur(1.3px);
+}
+
+@keyframes cascadePop {
+  from { transform:translate(-50%,-50%) scale(0.85); }
+  to   { transform:translate(-50%,-50%) scale(1.28); }
+}
+
 .cline.entry  { stroke:#4caf2e; }
 .cline.mid    { stroke:#1a4abf; }
 .cline.senior { stroke:#0d1f4e; }
