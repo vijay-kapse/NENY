@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Career Metro</title>
+<title>Career Map</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
 <style>
 *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
@@ -110,6 +110,12 @@ nav {
   position:relative;
   width:min(84vmin, 820px);
   height:min(84vmin, 820px);
+  transition:transform 0.4s ease;
+  transform-origin:center;
+}
+
+.wheel-wrap.focus-mode {
+  transform:scale(1.08);
 }
 
 .svg-layer {
@@ -174,6 +180,16 @@ body.dark .clabel {
 .dot:hover, .dot.sel {
   transform:translate(-50%,-50%) scale(1.45);
   z-index:30;
+}
+.wheel-wrap.focus-mode .dot:not(.sel):not(.related) {
+  filter:blur(1.5px);
+  opacity:0.18;
+}
+.wheel-wrap.focus-mode .dot.related {
+  animation:cascadePop 0.35s ease-out both;
+}
+.wheel-wrap.focus-mode .dot.sel {
+  animation:cascadePop 0.42s ease-out both;
 }
 .dot.related {
   z-index:24;
@@ -254,8 +270,25 @@ body.dark .dot-tip {
   opacity:0;
   transition:opacity 0.25s, stroke-width 0.25s;
   stroke-linecap:round;
+  stroke-dasharray:1.2 1.8;
 }
-.cline.on { opacity:0.88; stroke-width:1.25; }
+.cline.on { opacity:0.62; stroke-width:1.12; }
+
+.wheel-wrap.focus-mode .cline:not(.on) {
+  opacity:0;
+  filter:blur(0.6px);
+}
+
+.wheel-wrap.focus-mode #ringLabels,
+.wheel-wrap.focus-mode #catLabels {
+  opacity:0.2;
+  filter:blur(1.3px);
+}
+
+@keyframes cascadePop {
+  from { transform:translate(-50%,-50%) scale(0.85); }
+  to   { transform:translate(-50%,-50%) scale(1.28); }
+}
 
 .cline.entry  { stroke:#4caf2e; }
 .cline.mid    { stroke:#1a4abf; }
@@ -345,7 +378,7 @@ body.dark .panel-badge.senior { background:rgba(189,208,255,0.12); border-color:
 }
 .plist li:last-child { border-bottom:none; }
 .plist li.link { color:var(--accent); cursor:pointer; }
-.plist li.link::before { content:'↗'; font-size:10px; opacity:0.7; flex-shrink:0; }
+.plist li.link::before { content:'⟶'; font-size:11px; opacity:0.8; flex-shrink:0; color:var(--accent); }
 .plist li.link:hover { text-decoration:underline; }
 
 .skills-wrap { display:flex; flex-wrap:wrap; gap:4px; margin-top:4px; }
@@ -439,7 +472,7 @@ body.dark .fp { box-shadow:-10px 0 28px rgba(0,0,0,0.25); }
 
 <nav>
   <div class="nav-brand">
-    <span class="nav-title">Career Metro</span>
+    <span class="nav-title">Career Map</span>
     <div class="nav-sep"></div>
     <span class="nav-sub">Inner → outer = career progression</span>
   </div>
@@ -533,16 +566,17 @@ let filt = { level:'all', category:'all', search:'' };
 let isDark = false;
 let positions = {};
 let activeRoleId = null;
+let labelPlaced = [];
 
 /* Entry roles now sit very close to the center */
 const BANDS = {
-  entry:  { rMin:3.2,  rMax:6.2 },
+  entry:  { rMin:5.0,  rMax:11.5 },
   mid:    { rMin:22,   rMax:33 },
   senior: { rMin:38,   rMax:46 }
 };
 
 const RLABEL = {
-  entry:  { r:5,  lbl:'Entry',     sub:'Early career' },
+  entry:  { r:9,  lbl:'Entry',     sub:'Early career' },
   mid:    { r:27, lbl:'Mid-Level', sub:'Growth roles' },
   senior: { r:42, lbl:'Senior',    sub:'Leadership' }
 };
@@ -726,6 +760,44 @@ function getNeighborIds(roleId) {
   return set;
 }
 
+
+function calcNodeRadiusPct(level) {
+  if (level === 'Entry') return 1.8;
+  if (level === 'Mid-Level') return 2.1;
+  return 2.5;
+}
+
+function overlaps(x, y, r, placed, pad = 0.9) {
+  return placed.some(p => {
+    const dx = p.x - x;
+    const dy = p.y - y;
+    const minD = p.r + r + pad;
+    return (dx * dx + dy * dy) < (minD * minD);
+  });
+}
+
+function placeRoleWithoutOverlap({ role, a0, a1, band, k, placed }) {
+  const steps = 36;
+  const baseJitter = hash01(role.id + k);
+  for (let attempt = 0; attempt < steps; attempt++) {
+    const t = (attempt + 1) / (steps + 1);
+    const angle = a0 + t * (a1 - a0);
+    const spread = k === 'entry' ? 0.68 : 0.9;
+    const radialMix = Math.min(0.98, (0.1 + baseJitter * spread) + attempt * 0.018);
+    const r = band.rMin + radialMix * (band.rMax - band.rMin);
+    const pos = polar(50, 50, r, angle);
+    const pr = calcNodeRadiusPct(role.level);
+    if (!overlaps(pos.x, pos.y, pr, placed, 0.72)) {
+      return { x: pos.x, y: pos.y, r: pr };
+    }
+  }
+
+  const fallbackAngle = a0 + 0.5 * (a1 - a0);
+  const fallbackR = band.rMax;
+  const pos = polar(50, 50, fallbackR, fallbackAngle);
+  return { x: pos.x, y: pos.y, r: calcNodeRadiusPct(role.level) };
+}
+
 function layout() {
   const $svg   = document.getElementById('svgBase');
   const $lines = document.getElementById('svgLines');
@@ -739,6 +811,7 @@ function layout() {
   $rl.innerHTML = '';
   $cl.innerHTML = '';
   positions = {};
+  labelPlaced = [];
 
   if (!filtered.length) {
     closePanel(false);
@@ -752,6 +825,27 @@ function layout() {
   const pieColors = isDark ? PIE_COLORS_DARK : PIE_COLORS_LIGHT;
 
   const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+
+  const marker = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
+  marker.setAttribute('id', 'flowTick');
+  marker.setAttribute('markerUnits', 'userSpaceOnUse');
+  marker.setAttribute('markerWidth', '3.4');
+  marker.setAttribute('markerHeight', '2.4');
+  marker.setAttribute('refX', '1.7');
+  marker.setAttribute('refY', '1.2');
+  marker.setAttribute('orient', 'auto');
+
+  const markerPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  markerPath.setAttribute('d', 'M0.35,2.05 L1.7,0.35 L3.05,2.05');
+  markerPath.setAttribute('fill', 'none');
+  markerPath.setAttribute('stroke', isDark ? 'rgba(211,224,255,0.72)' : 'rgba(26,74,191,0.55)');
+  markerPath.setAttribute('stroke-width', '0.30');
+  markerPath.setAttribute('stroke-linecap', 'round');
+  markerPath.setAttribute('stroke-linejoin', 'round');
+
+  marker.appendChild(markerPath);
+  defs.appendChild(marker);
+
   $svg.appendChild(defs);
 
   cats.forEach((cat, i) => {
@@ -845,22 +939,9 @@ function layout() {
       const k = levelKey(lk);
       const band = BANDS[k];
 
-      lRoles.forEach((role, idx) => {
-        const t = (idx + 1) / (lRoles.length + 1);
-        const angle = a0 + t * (a1 - a0);
-        const jitter = hash01(role.id + k);
-
-        let r;
-        if (k === 'entry') {
-          /* very tightly clustered near the center */
-          r = band.rMin + (0.10 + jitter * 0.22) * (band.rMax - band.rMin);
-        } else if (k === 'mid') {
-          r = band.rMin + (0.22 + jitter * 0.68) * (band.rMax - band.rMin);
-        } else {
-          r = band.rMin + (0.18 + jitter * 0.74) * (band.rMax - band.rMin);
-        }
-
-        const pos = polar(cx, cy, r, angle);
+      lRoles.forEach((role) => {
+        const pos = placeRoleWithoutOverlap({ role, a0, a1, band, k, placed: labelPlaced });
+        labelPlaced.push(pos);
         positions[role.id] = { x: pos.x, y: pos.y };
 
         const el = document.createElement('div');
@@ -901,6 +982,7 @@ function layout() {
       line.setAttribute('x2', tgt.x);
       line.setAttribute('y2', tgt.y);
       line.setAttribute('class', `cline ${k}`);
+      line.setAttribute('marker-mid', 'url(#flowTick)');
       line.dataset.src = role.id;
       line.dataset.tgt = cid;
 
@@ -918,6 +1000,7 @@ function layout() {
 }
 
 function applyActiveState(roleId) {
+  document.getElementById('wheelWrap').classList.add('focus-mode');
   const neighborIds = getNeighborIds(roleId);
 
   document.querySelectorAll('.cline').forEach(l => {
@@ -934,6 +1017,7 @@ function applyActiveState(roleId) {
 }
 
 function clearActiveState() {
+  document.getElementById('wheelWrap').classList.remove('focus-mode');
   document.querySelectorAll('.dot').forEach(d => {
     d.classList.remove('sel', 'related', 'show-label');
   });
@@ -993,7 +1077,7 @@ function renderPanel(role) {
       ${skillsHTML}
     </div>
     <div class="prow">
-      <div class="prow-label">Career paths from here</div>
+      <div class="prow-label">Career paths from here (arrowed progression)</div>
       ${pathsHTML}
     </div>
   `;
