@@ -448,6 +448,62 @@ body.dark .panel-badge.senior { background:rgba(189,208,255,0.12); border-color:
   background:var(--bg2); border:0.5px solid var(--sep);
   border-radius:6px; color:var(--label2);
 }
+.skill-item { width:100%; margin-bottom:6px; }
+.skill-item:last-child { margin-bottom:0; }
+.skill-chip-btn {
+  width:100%;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  font-size:12px;
+  font-weight:600;
+  color:var(--label2);
+  background:var(--bg2);
+  border:0.5px solid var(--sep);
+  border-radius:8px;
+  padding:7px 10px;
+  cursor:pointer;
+  transition:background 0.15s, border-color 0.15s, color 0.15s;
+}
+.skill-chip-btn::after {
+  content:'▾';
+  font-size:11px;
+  color:var(--label4);
+  transition:transform 0.2s ease;
+}
+.skill-chip-btn:hover { background:var(--bg3); }
+.skill-chip-btn[aria-expanded="true"] {
+  border-color:rgba(76,175,46,0.42);
+  color:var(--label);
+}
+.skill-chip-btn[aria-expanded="true"]::after { transform:rotate(180deg); }
+
+.skill-trainings {
+  margin-top:5px;
+  border:0.5px solid var(--sep2);
+  border-radius:8px;
+  background:var(--glass);
+  padding:7px 10px;
+  display:none;
+}
+.skill-trainings.open { display:block; }
+.training-list {
+  list-style:disc;
+  padding-left:16px;
+  display:flex;
+  flex-direction:column;
+  gap:5px;
+}
+.training-list li {
+  font-size:12px;
+  color:var(--label3);
+  line-height:1.4;
+}
+.training-empty {
+  font-size:12px;
+  color:var(--label4);
+}
 
 /* filter panel */
 .fp {
@@ -614,10 +670,12 @@ body.dark .fp { box-shadow:-10px 0 28px rgba(0,0,0,0.25); }
 
 <script>
 const SHEET = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQ39S2y1A-CLOiFGe2WZrFwj9ZKiN7959oZY2FrnmeluW8dwx3bXFMSzIKZE4EASy0N6B-QuJkH210Q/pub?output=csv';
+const SKILL_TRAINING_SHEET = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQ39S2y1A-CLOiFGe2WZrFwj9ZKiN7959oZY2FrnmeluW8dwx3bXFMSzIKZE4EASy0N6B-QuJkH210Q/pub?gid=401763837&single=true&output=csv';
 
 let roles = [];
 let filtered = [];
 let roleById = new Map();
+let skillToTrainings = new Map();
 let filt = { level:'all', category:'all', search:'' };
 let isDark = false;
 let basePositions = {};
@@ -705,9 +763,20 @@ function toggleTheme() {
 async function loadData() {
   showState('loading');
   try {
-    const res = await fetch(SHEET);
-    if (!res.ok) throw new Error('Network error');
-    roles = parseCSV(await res.text());
+    const [rolesRes, skillTrainingRes] = await Promise.all([
+      fetch(SHEET),
+      fetch(SKILL_TRAINING_SHEET)
+    ]);
+
+    if (!rolesRes.ok || !skillTrainingRes.ok) throw new Error('Network error');
+
+    const [rolesCSV, skillTrainingCSV] = await Promise.all([
+      rolesRes.text(),
+      skillTrainingRes.text()
+    ]);
+
+    roles = parseCSV(rolesCSV);
+    skillToTrainings = parseSkillTrainingCSV(skillTrainingCSV);
     if (!roles.length) throw new Error('Empty data');
 
     const skillLines = roles
@@ -785,6 +854,37 @@ function parseCSV(csv) {
   return out;
 }
 
+function parseSkillTrainingCSV(csv) {
+  const lines = csv.trim().split('\n');
+  if (!lines.length) return new Map();
+
+  const headerIndex = new Map();
+  splitCSVLine(lines[0]).forEach((header, index) => {
+    headerIndex.set(header.trim().toLowerCase(), index);
+  });
+
+  const skillIdx = headerIndex.get('skill');
+  const trainingIdx = headerIndex.get('training');
+  if (skillIdx == null || trainingIdx == null) return new Map();
+
+  const trainingSetsBySkill = new Map();
+
+  for (let i = 1; i < lines.length; i++) {
+    if (!lines[i].trim()) continue;
+    const cols = splitCSVLine(lines[i]);
+    const skill = (cols[skillIdx] || '').trim();
+    const training = (cols[trainingIdx] || '').trim();
+    if (!skill || !training) continue;
+
+    if (!trainingSetsBySkill.has(skill)) trainingSetsBySkill.set(skill, new Set());
+    trainingSetsBySkill.get(skill).add(training);
+  }
+
+  return new Map(
+    [...trainingSetsBySkill.entries()].map(([skill, trainings]) => [skill, [...trainings]])
+  );
+}
+
 function buildCatFilters() {
   const fpCats = document.getElementById('fpCats');
   fpCats.innerHTML = '';
@@ -817,6 +917,25 @@ function escapeHTML(str = '') {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;');
+}
+
+const skillToTrainings = window.skillToTrainings || {};
+
+function normalizeSkillKey(skill = '') {
+  return String(skill).trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function trainingsForSkill(skill = '') {
+  const normKey = normalizeSkillKey(skill);
+  if (!normKey) return [];
+
+  if (Array.isArray(skillToTrainings[normKey])) return skillToTrainings[normKey];
+  if (Array.isArray(skillToTrainings[skill])) return skillToTrainings[skill];
+
+  const matchedKey = Object.keys(skillToTrainings).find(k => normalizeSkillKey(k) === normKey);
+  return matchedKey && Array.isArray(skillToTrainings[matchedKey])
+    ? skillToTrainings[matchedKey]
+    : [];
 }
 
 function hash01(s) {
@@ -1467,7 +1586,8 @@ function renderPanel(role) {
       }).join('')}</div>`
     : '<p>—</p>';
 
-  document.getElementById('panelBody').innerHTML = `
+  const panelBody = document.getElementById('panelBody');
+  panelBody.innerHTML = `
     <div class="prow">
       <div class="prow-label">Category</div>
       <p>${escapeHTML(role.category || '—')} · ${escapeHTML(role.level || '—')}</p>
@@ -1493,6 +1613,27 @@ function renderPanel(role) {
       ${renderPathList(role)}
     </div>
   `;
+
+  panelBody.querySelectorAll('.skill-chip-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = btn.dataset.skillIndex;
+      const trainingPanel = panelBody.querySelector(`#skill-trainings-${idx}`);
+      if (!trainingPanel) return;
+
+      const isExpanded = btn.getAttribute('aria-expanded') === 'true';
+      panelBody.querySelectorAll('.skill-chip-btn[aria-expanded="true"]').forEach(otherBtn => {
+        otherBtn.setAttribute('aria-expanded', 'false');
+      });
+      panelBody.querySelectorAll('.skill-trainings.open').forEach(otherPanel => {
+        otherPanel.classList.remove('open');
+      });
+
+      if (!isExpanded) {
+        btn.setAttribute('aria-expanded', 'true');
+        trainingPanel.classList.add('open');
+      }
+    });
+  });
 }
 
 function openPanelById(id) {
