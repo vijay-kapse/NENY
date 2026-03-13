@@ -489,8 +489,9 @@ body.dark .skill-trainings {
 }
 
 .training-item {
-  margin: 6px 0;
+  margin: 0 0 8px 0;
   font-size: 13px;
+  line-height: 1.45;
 }
 
 .training-item a {
@@ -500,10 +501,6 @@ body.dark .skill-trainings {
 
 .training-item a:hover {
   text-decoration: underline;
-}
-body.dark .training-item {
-  color:#d6e6ff;
-  border-color:rgba(207,224,255,0.24);
 }
 
 /* filter panel */
@@ -1515,69 +1512,48 @@ function skillKey(roleId, skill, idx) {
 
 function renderSkills(role) {
   const skills = role.skills || [];
-  if (!skills.length) return '<p>—</p>';
+  const chipsHTML = skills.length
+    ? `<div class="skills-wrap">${skills.map(skill => `<span class="skill-chip">${escapeHTML(skill)}</span>`).join('')}</div>`
+    : '<p>—</p>';
 
-  const chips = skills.map((skill, idx) => {
-    const panelId = skillKey(role.id, skill, idx);
-    return `
-      <button type="button"
-        class="skill-chip skill-chip-btn"
-        aria-expanded="false"
-        aria-controls="${panelId}">
-        ${escapeHTML(skill)}
-      </button>
-    `;
-  }).join('');
+  const allTrainings = [];
+  const seen = new Set();
 
-  const trainings = skills.map((skill, idx) => {
-
-    const panelId = skillKey(role.id, skill, idx);
+  skills.forEach(skill => {
     const linkedTrainings = role.trainingMap?.[skill]?.recommendations || [];
+    linkedTrainings.forEach(t => {
+      const url = String(t?.url || '').trim();
+      const program = String(t?.program || '').trim();
+      if (!url || !/^https?:\/\//i.test(url) || !program) return;
+      const key = `${program}|||${url}`.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      allTrainings.push({ program, url });
+    });
+  });
 
-    const trainingHTML = linkedTrainings.length
-      ? linkedTrainings.map(t => `
+  const trainingListHTML = allTrainings.length
+    ? `<ul class="training-list">${allTrainings.map(t => `
         <li class="training-item">
-          <a href="${escapeHTML(t.url || '#')}"
-             target="_blank"
-             rel="noopener noreferrer">
+          <a href="${escapeHTML(t.url)}" target="_blank" rel="noopener noreferrer">
             ${escapeHTML(t.program)}
           </a>
-        </li>
-      `).join('')
-      : `<li class="training-item">No training available</li>`;
-
-    return `
-      <div id="${panelId}" class="skill-trainings" hidden>
-        <ul class="training-list">
-          ${trainingHTML}
-        </ul>
-      </div>
-    `;
-  }).join('');
+        </li>`).join('')}</ul>`
+    : '<p style="font-size:13px;color:var(--label3)">No training links available</p>';
 
   return `
-    <div class="skills-wrap">${chips}</div>
-    ${trainings}
+    <div class="prow">
+      <div class="prow-label">Skills</div>
+      ${chipsHTML}
+    </div>
+    <div class="prow" style="margin-top:14px; margin-bottom:0;">
+      <div class="prow-label">Training Links</div>
+      ${trainingListHTML}
+    </div>
   `;
 }
 
- 
-
-function wireSkillButtons() {
-  document.querySelectorAll('.skill-chip-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const panelId = btn.getAttribute('aria-controls');
-      if (!panelId) return;
-      const panel = document.getElementById(panelId);
-      if (!panel) return;
-
-      const willOpen = btn.getAttribute('aria-expanded') !== 'true';
-      btn.setAttribute('aria-expanded', String(willOpen));
-      btn.classList.toggle('open', willOpen);
-      panel.hidden = !willOpen;
-    });
-  });
-}
+function wireSkillButtons() {}
 
 function renderPanel(role) {
   const k = levelKey(role.level);
@@ -1605,18 +1581,7 @@ function renderPanel(role) {
       <div class="prow-label">Education</div>
       <p>${escapeHTML(role.education || '—')}</p>
     </div>
-    <div class="prow">
-      <div class="prow-label">Skills</div>
-      ${skillsHTML}
-    </div>
-    <div class="prow">
-      <div class="prow-label">Training summary</div>
-      <p>${escapeHTML(role.training_summary || '—')}</p>
-    </div>
-    <div class="prow">
-      <div class="prow-label">Mapped skill tags</div>
-      <p>${escapeHTML((role.mappedSkillTags || []).join(', ') || '—')}</p>
-    </div>
+    ${skillsHTML}
     <div class="prow">
       <div class="prow-label">Career paths</div>
       ${renderPathList(role)}
