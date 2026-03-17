@@ -763,6 +763,7 @@ async function loadData() {
 
     roleById = new Map(roles.map(r => [r.id, r]));
     filtered = [...roles];
+    filteredIds = new Set(filtered.map(r => r.id));
     buildCatFilters();
     showState('wheel');
     window.roles = roles;
@@ -950,7 +951,9 @@ function getRenderableConnections(role) {
 }
 function getOutgoingIds(roleId) {
   const role = roleById.get(roleId);
-  return role ? getRenderableConnections(role) : [];
+  return role
+    ? getRenderableConnections(role).filter(id => isRoleVisible(id))
+    : [];
 }
 function getIncomingIds(roleId) {
   return filtered
@@ -997,7 +1000,9 @@ function layout() {
   basePositions = {};
   currentPositions = {};
 
-  if (!roles.length) {
+  const visibleRoles = filtered;
+
+  if (!visibleRoles.length) {
     closePanel(false);
     $st.innerHTML = '<div class="empty-msg"><h3>No matches</h3><p>Adjust your filters or clear the search.</p></div>';
     return;
@@ -1073,7 +1078,7 @@ function layout() {
   });
 
   const byLevel = { Entry:[], 'Mid-Level':[], Senior:[] };
-  roles.forEach(r => { if (byLevel[r.level]) byLevel[r.level].push(r); });
+  visibleRoles.forEach(r => { if (byLevel[r.level]) byLevel[r.level].push(r); });
 
   ['entry', 'mid', 'senior'].forEach(k => {
     const lk = k === 'entry' ? 'Entry' : k === 'mid' ? 'Mid-Level' : 'Senior';
@@ -1089,7 +1094,7 @@ function layout() {
   });
 
   const byCat = {};
-  roles.forEach(r => {
+  visibleRoles.forEach(r => {
     const c = r.category || 'Other';
     if (!byCat[c]) byCat[c] = [];
     byCat[c].push(r);
@@ -1145,11 +1150,11 @@ function layout() {
     });
   });
 
-  roles.forEach(role => {
+  visibleRoles.forEach(role => {
     const renderable = getRenderableConnections(role);
     renderable.forEach(cid => {
       const targetRole = roleById.get(cid);
-      if (!targetRole) return;
+      if (!targetRole || !basePositions[cid]) return;
       const k = levelKey(targetRole.level);
 
       const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
@@ -1579,9 +1584,10 @@ function closePanel(resetActive = true) {
 function doFilter() {
   const s = filt.search.toLowerCase();
   const catNorm = normalizeFilterValue(filt.category);
+  const levelNorm = normalizeFilterValue(filt.level);
 
   filtered = roles.filter(r => {
-    if (filt.level !== 'all' && r.level !== filt.level) return false;
+    if (levelNorm !== 'all' && normalizeFilterValue(r.level) !== levelNorm) return false;
 
     if (catNorm !== 'all' && normalizeFilterValue(r.category) !== catNorm) return false;
 
@@ -1593,11 +1599,9 @@ function doFilter() {
   });
 
   filteredIds = new Set(filtered.map(r => r.id));
+  layout();
 
-  if (!activeRoleId) {
-    applyFilterState();
-    return;
-  }
+  if (!activeRoleId) return;
 
   if (!filteredIds.has(activeRoleId)) {
     closePanel();
