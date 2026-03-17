@@ -190,6 +190,10 @@ body.dark .clabel {
   opacity:0.14;
   filter:blur(1.4px) saturate(0.45);
 }
+.dot.filtered-out {
+  opacity:0 !important;
+  pointer-events:none;
+}
 .dot.cascade-1 { transform:translate(-50%,-50%) scale(1.18); }
 .dot.cascade-2 { transform:translate(-50%,-50%) scale(1.10); }
 
@@ -330,6 +334,7 @@ body.dark .focus-stem {
   opacity:0.06 !important;
   filter:blur(1px);
 }
+.cline.filtered-out { opacity:0 !important; }
 .cline.entry  { stroke:#4caf2e; }
 .cline.mid    { stroke:#1a4abf; }
 .cline.senior { stroke:#0d1f4e; }
@@ -348,6 +353,7 @@ body.dark .cline.senior { stroke:#d3e0ff; }
 }
 .cchev.on { opacity:0.86; }
 .cchev.dimmed { opacity:0.04 !important; filter:blur(1px); }
+.cchev.filtered-out { opacity:0 !important; }
 .cchev.entry  { stroke:#4caf2e; }
 .cchev.mid    { stroke:#1a4abf; }
 .cchev.senior { stroke:#0d1f4e; }
@@ -763,6 +769,7 @@ async function loadData() {
 
     roleById = new Map(roles.map(r => [r.id, r]));
     filtered = [...roles];
+    filteredIds = new Set(filtered.map(r => r.id));
     buildCatFilters();
     showState('wheel');
     window.roles = roles;
@@ -1374,15 +1381,19 @@ function applyActiveState(roleId) {
   clearNodeClasses();
 
   document.querySelectorAll('.cline').forEach(l => {
-    const isOn = l.dataset.src === roleId || l.dataset.tgt === roleId;
+    const isVisible = isRoleVisible(l.dataset.src) && isRoleVisible(l.dataset.tgt);
+    const isOn = isVisible && (l.dataset.src === roleId || l.dataset.tgt === roleId);
     l.classList.toggle('on', isOn);
-    l.classList.toggle('dimmed', !isOn);
+    l.classList.toggle('dimmed', isVisible && !isOn);
+    l.classList.toggle('filtered-out', !isVisible);
   });
 
   document.querySelectorAll('.cchev').forEach(l => {
-    const isOn = l.dataset.src === roleId || l.dataset.tgt === roleId;
+    const isVisible = isRoleVisible(l.dataset.src) && isRoleVisible(l.dataset.tgt);
+    const isOn = isVisible && (l.dataset.src === roleId || l.dataset.tgt === roleId);
     l.classList.toggle('on', isOn);
-    l.classList.toggle('dimmed', !isOn);
+    l.classList.toggle('dimmed', isVisible && !isOn);
+    l.classList.toggle('filtered-out', !isVisible);
   });
 
   let idx = 0;
@@ -1395,7 +1406,8 @@ function applyActiveState(roleId) {
     d.classList.toggle('related', !isSel && isFocused);
     d.classList.toggle('show-label', false);
     const filteredOut = !isRoleVisible(id);
-    d.classList.toggle('dimmed', filteredOut || !isFocused);
+    d.classList.toggle('filtered-out', filteredOut);
+    d.classList.toggle('dimmed', !filteredOut && !isFocused);
 
     d.classList.remove('cascade-1', 'cascade-2');
     if (!isSel && isFocused) {
@@ -1605,6 +1617,7 @@ function doFilter() {
   }
 
   applyActiveState(activeRoleId);
+  applyFilterState();
 }
 
 function isRoleVisible(id) {
@@ -1613,20 +1626,24 @@ function isRoleVisible(id) {
 }
 
 function applyFilterState() {
-  if (activeRoleId) return;
-
-  clearNodeClasses();
+  if (!activeRoleId) clearNodeClasses();
   clearFocusLabels();
 
   document.querySelectorAll('.dot').forEach(d => {
-    d.classList.toggle('dimmed', !isRoleVisible(d.dataset.id));
+    const visible = isRoleVisible(d.dataset.id);
+    d.classList.toggle('filtered-out', !visible);
+    if (!activeRoleId) d.classList.toggle('dimmed', false);
   });
 
   document.querySelectorAll('.cline, .cchev').forEach(el => {
     const srcVisible = isRoleVisible(el.dataset.src);
     const tgtVisible = isRoleVisible(el.dataset.tgt);
-    el.classList.toggle('dimmed', !(srcVisible && tgtVisible));
-    el.classList.remove('on');
+    const visible = srcVisible && tgtVisible;
+    el.classList.toggle('filtered-out', !visible);
+    if (!activeRoleId) {
+      el.classList.toggle('dimmed', false);
+      el.classList.remove('on');
+    }
   });
 }
 
