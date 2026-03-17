@@ -113,7 +113,7 @@ nav {
   transform-origin:center center;
 }
 .wheel-wrap.focus-mode {
-  transform:scale(1.11);
+  transform:scale(1.06);
 }
 
 .svg-layer {
@@ -176,8 +176,6 @@ body.dark .clabel {
   cursor:pointer;
   transform:translate(-50%,-50%);
   transition:
-    left 520ms cubic-bezier(0.22, 1, 0.36, 1),
-    top 520ms cubic-bezier(0.22, 1, 0.36, 1),
     transform 460ms cubic-bezier(0.22, 1, 0.36, 1),
     opacity 260ms ease,
     filter 300ms ease;
@@ -191,6 +189,10 @@ body.dark .clabel {
 .dot.dimmed {
   opacity:0.14;
   filter:blur(1.4px) saturate(0.45);
+}
+.dot.filtered-out {
+  opacity:0 !important;
+  pointer-events:none;
 }
 .dot.cascade-1 { transform:translate(-50%,-50%) scale(1.18); }
 .dot.cascade-2 { transform:translate(-50%,-50%) scale(1.10); }
@@ -332,6 +334,7 @@ body.dark .focus-stem {
   opacity:0.06 !important;
   filter:blur(1px);
 }
+.cline.filtered-out { opacity:0 !important; }
 .cline.entry  { stroke:#4caf2e; }
 .cline.mid    { stroke:#1a4abf; }
 .cline.senior { stroke:#0d1f4e; }
@@ -350,6 +353,7 @@ body.dark .cline.senior { stroke:#d3e0ff; }
 }
 .cchev.on { opacity:0.86; }
 .cchev.dimmed { opacity:0.04 !important; filter:blur(1px); }
+.cchev.filtered-out { opacity:0 !important; }
 .cchev.entry  { stroke:#4caf2e; }
 .cchev.mid    { stroke:#1a4abf; }
 .cchev.senior { stroke:#0d1f4e; }
@@ -678,6 +682,7 @@ let isDark = false;
 let basePositions = {};
 let activeRoleId = null;
 let currentPositions = {};
+let filteredIds = new Set();
 
 const BANDS = {
   entry:  { rMin:1.6, rMax:11.8 },
@@ -764,6 +769,7 @@ async function loadData() {
 
     roleById = new Map(roles.map(r => [r.id, r]));
     filtered = [...roles];
+    filteredIds = new Set(filtered.map(r => r.id));
     buildCatFilters();
     showState('wheel');
     window.roles = roles;
@@ -998,20 +1004,21 @@ function layout() {
   basePositions = {};
   currentPositions = {};
 
-  if (!filtered.length) {
+  if (!roles.length) {
     closePanel(false);
     $st.innerHTML = '<div class="empty-msg"><h3>No matches</h3><p>Adjust your filters or clear the search.</p></div>';
     return;
   }
 
   const cx = 50, cy = 50;
-  const cats = [...new Set(filtered.map(r => r.category).filter(Boolean))];
+  const cats = [...new Set(roles.map(r => r.category).filter(Boolean))];
   const sliceAngle = cats.length > 0 ? (2 * Math.PI) / cats.length : 0;
   const pieColors = isDark ? PIE_COLORS_DARK : PIE_COLORS_LIGHT;
 
   const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
   $svg.appendChild(defs);
 
+  const catLabelData = [];
   cats.forEach((cat, i) => {
     const g = document.createElementNS('http://www.w3.org/2000/svg', 'radialGradient');
     g.setAttribute('id', `pg${i}`);
@@ -1047,16 +1054,33 @@ function layout() {
     $svg.appendChild(path);
 
     const lp = polar(cx, cy, 46.6, (a0 + a1) / 2);
+    catLabelData.push({ cat, x: lp.x, y: lp.y, angle: (a0 + a1) / 2 });
+  });
+
+  catLabelData
+    .sort((a, b) => a.y - b.y)
+    .forEach((item, idx, arr) => {
+      const minGap = 3;
+      if (idx > 0 && item.y - arr[idx - 1].y < minGap) {
+        item.y = arr[idx - 1].y + minGap;
+      }
+    });
+
+  catLabelData.forEach(item => {
+    item.y = Math.max(6, Math.min(94, item.y));
+    const radialX = Math.cos(item.angle) * 1.2;
+    item.x = Math.max(6, Math.min(94, item.x + radialX));
+
     const lbl = document.createElement('div');
     lbl.className = 'clabel';
-    lbl.textContent = cat;
-    lbl.style.left = lp.x + '%';
-    lbl.style.top  = lp.y + '%';
+    lbl.textContent = item.cat;
+    lbl.style.left = item.x + '%';
+    lbl.style.top  = item.y + '%';
     $cl.appendChild(lbl);
   });
 
   const byLevel = { Entry:[], 'Mid-Level':[], Senior:[] };
-  filtered.forEach(r => { if (byLevel[r.level]) byLevel[r.level].push(r); });
+  roles.forEach(r => { if (byLevel[r.level]) byLevel[r.level].push(r); });
 
   ['entry', 'mid', 'senior'].forEach(k => {
     const lk = k === 'entry' ? 'Entry' : k === 'mid' ? 'Mid-Level' : 'Senior';
@@ -1072,7 +1096,7 @@ function layout() {
   });
 
   const byCat = {};
-  filtered.forEach(r => {
+  roles.forEach(r => {
     const c = r.category || 'Other';
     if (!byCat[c]) byCat[c] = [];
     byCat[c].push(r);
@@ -1128,7 +1152,7 @@ function layout() {
     });
   });
 
-  filtered.forEach(role => {
+  roles.forEach(role => {
     const renderable = getRenderableConnections(role);
     renderable.forEach(cid => {
       const targetRole = roleById.get(cid);
@@ -1159,6 +1183,8 @@ function layout() {
   } else if (activeRoleId && !basePositions[activeRoleId]) {
     closePanel(false);
   }
+
+  applyFilterState();
 }
 
 function updateNodePositions(posMap) {
@@ -1213,56 +1239,6 @@ function updateEdgesGeometry(posMap) {
     if (!src || !tgt) return;
     p.setAttribute('d', chevronPath(src.x, src.y, tgt.x, tgt.y));
   });
-}
-
-function buildFocusPositions(roleId) {
-  const selected = basePositions[roleId];
-  if (!selected) return { ...basePositions };
-
-  const result = {};
-  Object.keys(basePositions).forEach(id => {
-    result[id] = { ...basePositions[id] };
-  });
-
-  const incoming = sortByRadius(getIncomingIds(roleId).filter(id => id !== roleId));
-  const outgoing = sortByRadius(getOutgoingIds(roleId).filter(id => id !== roleId));
-
-  const dx = selected.x - 50;
-  const dy = selected.y - 50;
-  const len = Math.hypot(dx, dy) || 1;
-  const ux = dx / len;
-  const uy = dy / len;
-
-  result[roleId] = {
-    ...selected,
-    x: selected.x - ux * 2.2,
-    y: selected.y - uy * 2.2
-  };
-
-  const focusY = result[roleId].y;
-  const leftX  = Math.max(18, result[roleId].x - 16);
-  const rightX = Math.min(82, result[roleId].x + 16);
-
-  const incomingYs = distributeSlots(incoming.length, focusY, 5.6, 18, 82);
-  const outgoingYs = distributeSlots(outgoing.length, focusY, 5.6, 18, 82);
-
-  incoming.forEach((id, i) => {
-    result[id] = {
-      ...basePositions[id],
-      x: leftX,
-      y: incomingYs[i]
-    };
-  });
-
-  outgoing.forEach((id, i) => {
-    result[id] = {
-      ...basePositions[id],
-      x: rightX,
-      y: outgoingYs[i]
-    };
-  });
-
-  return result;
 }
 
 function clearNodeClasses() {
@@ -1398,23 +1374,26 @@ function applyActiveState(roleId) {
   const neighborIds = getNeighborIds(roleId);
   const focusIds = new Set([roleId, ...neighborIds]);
 
-  const focusMap = buildFocusPositions(roleId);
-  updateNodePositions(focusMap);
-  updateEdgesGeometry(focusMap);
+  updateNodePositions(basePositions);
+  updateEdgesGeometry(basePositions);
 
   document.getElementById('wheelWrap').classList.add('focus-mode');
   clearNodeClasses();
 
   document.querySelectorAll('.cline').forEach(l => {
-    const isOn = l.dataset.src === roleId || l.dataset.tgt === roleId;
+    const isVisible = isRoleVisible(l.dataset.src) && isRoleVisible(l.dataset.tgt);
+    const isOn = isVisible && (l.dataset.src === roleId || l.dataset.tgt === roleId);
     l.classList.toggle('on', isOn);
-    l.classList.toggle('dimmed', !isOn);
+    l.classList.toggle('dimmed', isVisible && !isOn);
+    l.classList.toggle('filtered-out', !isVisible);
   });
 
   document.querySelectorAll('.cchev').forEach(l => {
-    const isOn = l.dataset.src === roleId || l.dataset.tgt === roleId;
+    const isVisible = isRoleVisible(l.dataset.src) && isRoleVisible(l.dataset.tgt);
+    const isOn = isVisible && (l.dataset.src === roleId || l.dataset.tgt === roleId);
     l.classList.toggle('on', isOn);
-    l.classList.toggle('dimmed', !isOn);
+    l.classList.toggle('dimmed', isVisible && !isOn);
+    l.classList.toggle('filtered-out', !isVisible);
   });
 
   let idx = 0;
@@ -1426,7 +1405,9 @@ function applyActiveState(roleId) {
     d.classList.toggle('sel', isSel);
     d.classList.toggle('related', !isSel && isFocused);
     d.classList.toggle('show-label', false);
-    d.classList.toggle('dimmed', !isFocused);
+    const filteredOut = !isRoleVisible(id);
+    d.classList.toggle('filtered-out', filteredOut);
+    d.classList.toggle('dimmed', !filteredOut && !isFocused);
 
     d.classList.remove('cascade-1', 'cascade-2');
     if (!isSel && isFocused) {
@@ -1623,7 +1604,47 @@ function doFilter() {
     return true;
   });
 
-  layout();
+  filteredIds = new Set(filtered.map(r => r.id));
+
+  if (!activeRoleId) {
+    applyFilterState();
+    return;
+  }
+
+  if (!filteredIds.has(activeRoleId)) {
+    closePanel();
+    return;
+  }
+
+  applyActiveState(activeRoleId);
+  applyFilterState();
+}
+
+function isRoleVisible(id) {
+  if (!filteredIds.size) return true;
+  return filteredIds.has(id);
+}
+
+function applyFilterState() {
+  if (!activeRoleId) clearNodeClasses();
+  clearFocusLabels();
+
+  document.querySelectorAll('.dot').forEach(d => {
+    const visible = isRoleVisible(d.dataset.id);
+    d.classList.toggle('filtered-out', !visible);
+    if (!activeRoleId) d.classList.toggle('dimmed', false);
+  });
+
+  document.querySelectorAll('.cline, .cchev').forEach(el => {
+    const srcVisible = isRoleVisible(el.dataset.src);
+    const tgtVisible = isRoleVisible(el.dataset.tgt);
+    const visible = srcVisible && tgtVisible;
+    el.classList.toggle('filtered-out', !visible);
+    if (!activeRoleId) {
+      el.classList.toggle('dimmed', false);
+      el.classList.remove('on');
+    }
+  });
 }
 
 function setF(type, val) {
